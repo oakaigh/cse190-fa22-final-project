@@ -161,7 +161,8 @@ void ble_loop() {
   }
   
   if (HCI_Queue_Empty()) {
-    //Enter_LP_Sleep_Mode();
+    //
+    //aci_hal_device_standby();
   }
 
   if (ble_rx_buffer_len) {  //Check if data is available
