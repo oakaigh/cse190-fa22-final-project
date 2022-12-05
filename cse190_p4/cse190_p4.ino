@@ -42,7 +42,6 @@ public:
 
 	void set_lost() {
 		this->is_lost = true;
-		this->n_minutes_lost = 0;
 	}
 
 	void process_cmd(const char *cmd, std::size_t len) {
@@ -174,7 +173,7 @@ int main() {
 
 	static const stble::local_name<> l_name = {
 		.type = stble::local_name<>::type_e::FULL,
-		.val = "CSE190A" //app.name
+		.val = app.name
 	};
 
 
