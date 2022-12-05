@@ -228,8 +228,6 @@ int main() {
 		return EXIT_FAILURE;
 	}
 
-
-
 	// timer
 	// TODO rm when bma250 interrupt can be latched
 
