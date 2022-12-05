@@ -63,6 +63,27 @@ fail:
 
 }
 
+
+void setConnectable(void)
+{
+  tBleStatus ret;
+
+  const char local_name[] = {AD_TYPE_COMPLETE_LOCAL_NAME, 'C', 'S', 'E', '1', '9', '0', 'A'};
+
+  hci_le_set_scan_resp_data(0, NULL);
+  PRINTF("Enter Discoverable Mode.\n");
+
+  ret = aci_gap_set_discoverable(ADV_IND,
+                                 (ADV_INTERVAL_MIN_MS * 1000) / 625, (ADV_INTERVAL_MAX_MS * 1000) / 625,
+                                 PUBLIC_ADDR, NO_WHITE_LIST_USE,
+                                 sizeof(local_name), local_name, 0, NULL, 0, 0);
+
+  if (ret != BLE_STATUS_SUCCESS)
+    PRINTF("%d\n", (uint8_t)ret);
+
+}
+
+
 int ble_init() {
   int ret;
 
@@ -113,35 +134,19 @@ int ble_init() {
 
   /* +4 dBm output power */
   ret = aci_hal_set_tx_power_level(1, 3);
+
+  setConnectable();
 }
 
-void setConnectable(void)
-{
-  tBleStatus ret;
-
-  const char local_name[] = {AD_TYPE_COMPLETE_LOCAL_NAME, 'C', 'S', 'E', '1', '9', '0', 'A'};
-
-  hci_le_set_scan_resp_data(0, NULL);
-  PRINTF("Enter Discoverable Mode.\n");
-
-  ret = aci_gap_set_discoverable(ADV_IND,
-                                 (ADV_INTERVAL_MIN_MS * 1000) / 625, (ADV_INTERVAL_MAX_MS * 1000) / 625,
-                                 PUBLIC_ADDR, NO_WHITE_LIST_USE,
-                                 sizeof(local_name), local_name, 0, NULL, 0, 0);
-
-  if (ret != BLE_STATUS_SUCCESS)
-    PRINTF("%d\n", (uint8_t)ret);
-
-}
 
 void ble_loop() {
   HCI_Process();
   ble_connection_state = connected;
   
-  if (set_connectable) {
-    setConnectable();
-    set_connectable = 0;
-  }
+  //if (set_connectable) {
+  //  setConnectable();
+  //  set_connectable = 0;
+  //}
   
   if (HCI_Queue_Empty()) {
     //Enter_LP_Sleep_Mode();
@@ -215,7 +220,9 @@ void GAP_DisconnectionComplete_CB(void) {
   connected = FALSE;
   PRINTF("Disconnected\n");
   /* Make the device connectable again. */
-  set_connectable = TRUE;
+  //set_connectable = TRUE;
+    setConnectable();
+
 }
 
 

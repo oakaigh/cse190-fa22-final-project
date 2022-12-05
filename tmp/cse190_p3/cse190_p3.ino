@@ -29,6 +29,7 @@ void setup() {
 
 void loop() {
   ble_loop(); //Process any ACI commands or events from the main BLE handler, must run often. Keep main loop short.
+  return;
 
   if (SerialUSB.available()) {//Check if serial input is available to send
     delay(10);//should catch input

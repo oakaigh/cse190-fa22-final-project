@@ -1,12 +1,13 @@
 #pragma once
 
+#include "arduino.h"
+
+#include <cstddef>
 #include <algorithm>
 #include <limits>
-
 #include <climits>
 #include <cmath>
-
-#include "arduino.h"
+#include <cstring>
 
 
 #define sizeof_bit(n)	\
@@ -98,4 +99,17 @@ constexpr bool in_range(
 	const num_type &x,
 	const num_type &low, const num_type &high
 ) { return low <= x && x <= high; }	
+
+inline std::ptrdiff_t bytes_compare(
+	const char *lhs, std::size_t len_lhs, 
+	const char *rhs, std::size_t len_rhs
+) {
+	return std::strncmp(lhs, rhs, std::min(len_lhs, len_rhs));
+}
+
+inline bool bytes_equal(
+	const char *lhs, std::size_t len_lhs, 
+	const char *rhs, std::size_t len_rhs
+) { return bytes_compare(lhs, len_lhs, rhs, len_rhs) == 0; }
+
 }

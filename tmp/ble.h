@@ -29,6 +29,6 @@ struct ble_conf {
 int ble_init(struct ble_conf conf);
 
 // Run this in the main loop to handle any BLE events
-void ble_loop();
+bool ble_loop();
 
-uint8_t lib_aci_send_data(uint8_t ignore, uint8_t* sendBuffer, uint8_t sendLength);
+uint8_t Write_UART_TX(char* TXdata, uint8_t datasize);
