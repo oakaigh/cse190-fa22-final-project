@@ -1,8 +1,21 @@
+//-------------------------------------------------------------------------------
+//  TinyCircuits ST BLE TinyShield UART Example Sketch
+//  Last Updated 2 March 2016
+//
+//  This demo sets up the BlueNRG-MS chipset of the ST BLE module for compatiblity 
+//  with Nordic's virtual UART connection, and can pass data between the Arduino
+//  serial monitor and Nordic nRF UART V2.0 app or another compatible BLE
+//  terminal. This example is written specifically to be fairly code compatible
+//  with the Nordic NRF8001 example, with a replacement UART.ino file with
+//  'aci_loop' and 'BLEsetup' functions to allow easy replacement. 
+//
+//  Written by Ben Rose, TinyCircuits http://tinycircuits.com
+//
+//-------------------------------------------------------------------------------
+
 #pragma once
 
 #include "arduino.h"
-// TODO
-#include "src/stble/ASTBLE/STBLE.h"
 
 #include <utility>
 #include <string>
@@ -12,6 +25,8 @@
 #include <cstddef>
 
 #include <list>
+
+#include "src/stble/ASTBLE/STBLE.h"
 
 
 struct HCI_Event_CB_Info {
@@ -28,8 +43,11 @@ void HCI_Event_CB(void *pckt) {
 namespace stble {
 
 inline bool process() {
+	// nothing to process
+	if (HCI_Queue_Empty())
+		return false;
 	HCI_Process();
-	return HCI_Queue_Empty();
+	return true;
 }
 
 inline void register_event(void (*cb)(void *, void *), void *data = nullptr) {
@@ -61,9 +79,9 @@ struct local_name_string {
 		this->assign(s, len);
 	}
 
-	local_name_string(const char *s) {
-		this->assign(s);
-	}
+	local_name_string(const char *s) { this->assign(s); }
+
+	local_name_string(const std::string &s) { this->assign(s); }
 
 	local_name_string &assign(const char *s, std::size_t len) {
 		std::memcpy(this->data, s, std::min(len, buf_len));
@@ -73,6 +91,10 @@ struct local_name_string {
 	// null-terminated
 	local_name_string &assign(const char *s) {
 		return this->assign(s, strlen(s) + 1);
+	}
+
+	local_name_string &assign(const std::string &s) {
+		return this->assign(s.c_str(), s.length() + 1);
 	}
 
 	// NOTE local name passed to aci_gap_set_discoverable is NOT null-terminated
@@ -134,7 +156,7 @@ public:
 		status_e s = status_e::STATUS_SUCCESS;
 		tBleStatus s_ble;
 
-		// init hci
+		// init HCI
 		HCI_Init();
 		// init SPI interface 
 		BNRG_SPI_Init();
@@ -406,6 +428,7 @@ public:
 	status_e write(const char *data, std::size_t len) {
 		tBleStatus s_ble;
 
+		// TODO check if connected
 		s_ble = aci_gatt_update_char_value(
 			this->info.handle.serv, 
 			this->info.handle.rx, 
@@ -416,6 +439,14 @@ public:
 			return status_e::STATUS_FAILURE;
 
 		return status_e::STATUS_SUCCESS;
+	}
+
+	status_e print(const char *s) {
+		return this->write(s, strlen(s) + 1);
+	}
+
+	status_e print(const std::string &s) {
+		return this->write(s.c_str(), s.length() + 1);
 	}
 };
 }

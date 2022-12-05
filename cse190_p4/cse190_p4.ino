@@ -1,211 +1,391 @@
-//-------------------------------------------------------------------------------
-//  TinyCircuits ST BLE TinyShield UART Example Sketch
-//  Last Updated 2 March 2016
-//
-//  This demo sets up the BlueNRG-MS chipset of the ST BLE module for compatiblity 
-//  with Nordic's virtual UART connection, and can pass data between the Arduino
-//  serial monitor and Nordic nRF UART V2.0 app or another compatible BLE
-//  terminal. This example is written specifically to be fairly code compatible
-//  with the Nordic NRF8001 example, with a replacement UART.ino file with
-//  'aci_loop' and 'BLEsetup' functions to allow easy replacement. 
-//
-//  Written by Ben Rose, TinyCircuits http://tinycircuits.com
-//
-//-------------------------------------------------------------------------------
-
-/*#include <SPI.h>
-//#include "STBLE.h"
-
-#include "src/stble/ble.h"
-
-
-struct ble_conf _test_ble_conf = {
-	.bdaddr = {0x12, 0x72, 0xe9, 0x66, 0x06, 0x00},
-	//.bdaddr = {0x12, 0x72, 0xe9, 0x66, 0xe6, 0x00},
-	.name = "PrivTag"
-};
-
-
-//#include "src/stble/STBLE/src/STBLE.h"
-#include "src/stble/ASTBLE/STBLE.h"
+/* === DO NOT REMOVE: Initialize C library === */
+extern "C" void __libc_init_array(void);
 
 #include "arduino.h"
-
-enum local_name_type : uint8_t {
-	SHORT = AD_TYPE_SHORTENED_LOCAL_NAME,
-	FULL  = AD_TYPE_COMPLETE_LOCAL_NAME
-} __attribute__((packed));
-
-#include <algorithm>
-
-#include <cstring>
-
-template <std::size_t buf_len = 1>
-struct local_name_value {
-	char data[buf_len];
-
-	local_name_value() : data({[0] = 0}) {}
-
-	local_name_value(const char *s, std::size_t len) {
-		this->assign(s, len);
-	}
-
-	local_name_value(const char *s) {
-		this->assign(s);
-	}
-
-	local_name_value &assign(const char *s, std::size_t len) {
-		std::memcpy(this->data, s, std::min(len, buf_len));
-		return *this;
-	}
-
-	// null-terminated
-	local_name_value &assign(const char *s) {
-		return this->assign(s, strlen(s) + 1);
-	}
-
-	// NOTE local name passed to aci_gap_set_discoverable is NOT null-terminated
-	constexpr std::size_t size() const { return strlen(this->data); }
-
-	constexpr std::size_t capacity() const { return buf_len; }
-} __attribute__((packed));
-
-
-// see aci_gap_set_discoverable
-template <std::size_t buf_len = 40 - 14>
-struct local_name {
-	using type_e = enum local_name_type;
-	using value_s = struct local_name_value<buf_len>;
-
-	type_e type;
-	value_s val;
-
-	constexpr std::size_t size() { 
-		return sizeof(this->type) + this->val.size(); 
-	}
-} __attribute__((packed));
-
-
-void testa() {
-	struct local_name<12> ln = {
-		.type = local_name<>::type_e::FULL,
-		.val = "CSE190A"
-	};
-}
-*/
-
-
-
-#include "arduino.h"
-
-#include "stble.h"
-
-
 #include <tuple>
 
+#include "stble.h"
 #include "utils.h"
+#include "logging.h"
+
+#include "clock.h"
+#include "timer.h"
+#include "ledcircle.h"
+#include "bma250.h"
+
+#include "pm.h"
+
+
+static const constexpr bool production = false;
+
+namespace privtag {
+
+class privtag {
+public:
+	struct {
+		char *reset = "found";
+	} cmd;
+
+	std::string name = "";
+
+	bool is_lost;
+	std::size_t n_minutes_lost;
+
+	privtag(std::string name) : name(name) { 
+		this->reset(); 
+	} 
+
+	void reset() {
+		this->is_lost = false;
+		this->n_minutes_lost = 0;
+	}
+
+	void set_lost() {
+		this->is_lost = true;
+		this->n_minutes_lost = 0;
+	}
+
+	void process_cmd(const char *cmd, std::size_t len) {
+		if (utils::bytes_equal(
+			cmd, len,
+			this->cmd.reset, strlen(this->cmd.reset)
+		)) {
+			this->reset();
+		}
+	}
+
+	std::string stats() const {
+		return std::string("")
+			+ "is lost = " + std::to_string(this->is_lost) + ", "
+			+ "lost counter = " + std::to_string(this->n_minutes_lost) + "min";
+	}
+};
+
+inline privtag app("CSE190A");
+}
 
 
 
-void setup() {
-	SerialUSB.begin(115200);
+int main() {
+	init();
+	__libc_init_array();
+
+	// USB configuration
+	if (!production) {
+		USBDevice.init();
+		USBDevice.attach();		
+	}
+
+	// TODO rm debug
 	while (!SerialUSB); //This line will block until a serial monitor is opened with TinyScreen+!
 	SerialUSB.println("Starting...");
 
+	// TODO
+	// peripheral clock configuration
+	//PM->APBCMASK.reg = PM_APBCMASK_RESETVALUE;
 
+	PM->APBCMASK.bit.ADC_ = true;
+	PM->APBCMASK.bit.DAC_ = true;
+	PM->APBCMASK.bit.SERCOM3_ = true;
+	PM->APBCMASK.bit.TC3_ = true;
+
+	// logging
+	static const constexpr auto log_level 
+		= production
+			? logging::L_NOTSET
+			: logging::L_DEBUG;
+
+	static tinyzero::usbserial_logger logger("privtag");
+	// set USB serial baud rate
+	logger.init(115200);
+	logger.set_level(log_level);
+
+	// out-of-band logging (USB serial unavail)
+	static tinyzero::led_logger logger_le("privtag_le");
+	logger_le.init();
+	logger_le.set_level(log_level);
+
+	// clock
+	logger.info("clock: initialization");
+	static constexpr auto &sysclk = tinyzero::clocks::clk0;
+	sysclk.init();
+
+	static constexpr auto &clk = tinyzero::clocks::clk4;
+	clk.init();
+
+	// clock enabled in standby
+	clk.set_src(clk.CLKSRCID_OSCULP32K, true);
+
+	// I2C serial
+	logger.info("i2c: initialization");
+	static constexpr auto &i2c = tinyzero::i2c_sockets::primary_sercom3;
+	// TODO baud rate
+	i2c.init(&sysclk, 100000);
+
+	i2c.enable();
+
+	// accelerometer
+	logger.info("accelerometer: initialization");
+	static constexpr auto &accel = tinyzero::accel;
+
+	accel.init(&i2c);
+	accel.set_range(bma250::range_preset_t::RANGE_2G)
+		.set_intvl(bma250::intvl_preset_t::INTVL_64MS)
+		.set_lopower(bma250::bma250::sleepdur_e::DUR_500MS);
+
+	// TODO latch mode not working!!!
+	accel.listen(bma250::event_e::SLOPE, true);
+
+	// NOTE using polling instead of interrupt 
+	static auto check_movement = []() -> bool {
+		auto stat = bma250_register_read(&accel, intt_stat.intt);
+		accel.accept();
+
+		return stat.slope_int;
+	};
+
+	// privtag app
+	logger.info("privtag: initialization");
+	static constexpr auto &app = privtag::app;
+	app.reset();
+
+	// bluetooth
+
+	// TODO rm debug
+	delay(5000);
+
+	logger.info("bluetooth: initialization");
 	static constexpr auto &bt = tinyzero::bluetooth;
 
 	// TODO err handling
 	bt.init((stble::ble_info) {
 		.addr = { .addr = {0x12, 0x72, 0xe9, 0x66, 0x06, 0x00} }
 	});
-	bt.set_dev_name("PrivTag");
-	bt.set_txpower(true, 3);
-	bt.set_discoverable((stble::local_name<>) { 
-		.type = stble::local_name<>::type_e::FULL,
-		.val = "CSE190A" 
-	});
 
+	// TODO rm debug
+	logger.info("set dev name ");
+
+	bt.set_dev_name("PrivTag");
+
+		// TODO rm debug
+	logger.info("set tx ");
+	// set power to +4 dBm
+	bt.set_txpower(true, 3);
+
+	static const stble::local_name<> l_name = {
+		.type = stble::local_name<>::type_e::FULL,
+		.val = "CSE190A" //app.name
+	};
+
+
+		// TODO rm debug
+	logger.info("set disc ");
+	// TODO
+	bt.set_discoverable(l_name);
+
+	//bt.unset_discoverable();
+
+	logger.info("bluetooth (UART): initialization");
 	static stble::uart bt_uart;
 
-	stble::ble::status_e s;
 	stble::uart_info bt_uart_i;
-	std::tie(s, bt_uart_i) = bt.add_service_uart();
-	if (s != bt_uart.STATUS_SUCCESS) {
-		// TODO
-		SerialUSB.println("uart init failure");
-	}
-	
-
-	bt_uart.init(bt_uart_i);
+	stble::ble::status_e bt_uart_stat;
+	std::tie(bt_uart_stat, bt_uart_i) = bt.add_service_uart();
+	if (bt_uart_stat != bt_uart.STATUS_SUCCESS) {
+		logger.error("bluetooth (UART): service failure");
+		return EXIT_FAILURE;
+	}		
 
 	bt_uart.callbacks.connect = [](
 		const evt_le_connection_complete &evt
 	) {
-		SerialUSB.println("connection");
+		logger.debug("bluetooth (UART): connection");
 	};
 
 	bt_uart.callbacks.disconnect = [](const evt_disconn_complete &evt) {
-		SerialUSB.println("disconnected");
-		bt.set_discoverable((stble::local_name<>) { 
-			.type = stble::local_name<>::type_e::FULL,
-			.val = "CSE190A" 
-		});
+		logger.debug("bluetooth (UART): client disconnected");
+
+		bt.set_discoverable(l_name);
+
+		//
+		if (app.is_lost) {
+			//bt.set_discoverable(l_name);
+		} else {
+			//bt.unset_discoverable();
+		}
 	};
 
 	bt_uart.callbacks.read = [](const char *data, std::size_t len) {
-		SerialUSB.print("data: ");
-		SerialUSB.write(data, len);
-		SerialUSB.println();
+		logger.debug(
+			std::string("bluetooth (UART): data: ")
+				+ std::string(data, len)
+		);
 
-
-		const constexpr char magic[] = "found";
-		if (utils::bytes_equal(
-			data, len,
-			magic, strlen(magic)
-		)) {
-			SerialUSB.println("magic");
-		}
-
+		app.process_cmd(data, len);
 	};
 
+	if (bt_uart.init(bt_uart_i) != bt_uart.STATUS_SUCCESS) {
+		logger.error("bluetooth (UART): init failure");
+		return EXIT_FAILURE;
+	}
 
-	//ble_init(_test_ble_conf);
-}
 
 
-void loop() {
-	//ble_loop(); //Process any ACI commands or events from the main BLE handler, must run often. Keep main loop short.
+	// timer
+	// TODO rm when bma250 interrupt can be latched
 
-	stble::process();
+	// how long it takes before declaring device lost
+	static const constexpr std::size_t
+		idle_interval_sec = 2,
+		idle_timeout_sec = 60;
+	
+	static const constexpr std::size_t
+		stat_interval_sec = 2;// TODO rm debug // 10;
 
-	return;
+	// timer
+	logger.info("timer: initialization");
+	static constexpr auto &timer = tinyzero::timers::tc3;
+	timer.init(&clk);
+	logger.debug("timer: initialization done");
 
-	//Write_UART_TX();
+	if (timer.set_interval(
+		idle_interval_sec, 
+		timer.INTVLPRIOR_RANGE
+	) != timer.STATUS_SUCCESS) {
+		logger.error("timer: invalid interval");
+		return EXIT_FAILURE;
+	}
 
-	if (SerialUSB.available()) {//Check if serial input is available to send
-		delay(10);//should catch input
-		uint8_t sendBuffer[21];
-		uint8_t sendLength = 0;
-		while (SerialUSB.available() && sendLength < 19) {
-			sendBuffer[sendLength] = SerialUSB.read();
-			sendLength++;
+	timer.listen([]() {
+		static std::size_t n_seconds = 0;
+		static bool has_movement = false;
+
+		logger.debug(
+			std::string("timer: tick: ")
+				+ "total elapsed = " 
+					+ std::to_string(n_seconds) + "sec"
+		);
+
+		n_seconds += idle_interval_sec;
+
+		// check movement
+		if (check_movement()) {
+			has_movement = true;
+			logger.debug("timer: movement check: motion");
+			logger_le.debug("timer: movement check: motion");
+		} else {
+			logger_le.debug("");
 		}
-		if (SerialUSB.available()) {
-			SerialUSB.print(F("Input truncated, dropped: "));
-			if (SerialUSB.available()) {
-				SerialUSB.write(SerialUSB.read());
+
+		// stats
+		if (n_seconds % stat_interval_sec == 0) {
+			logger.info(
+				std::string("timer: privtag stats: ")
+					+ app.stats()
+			);
+			
+			if (app.is_lost) {
+				// TODO check if connected
+				/*bt_uart.print(
+					std::string("privtag ") + app.name 
+						+ " has been missing for "
+						+ std::to_string(app.n_minutes_lost) + " minutes."
+				);*/
 			}
 		}
-		sendBuffer[sendLength] = '\0'; //Terminate string
-		sendLength++;
 
-		
-// TODO rm useless
-//#define PIPE_UART_OVER_BTLE_UART_TX_TX 0
-//		if (!lib_aci_send_data(PIPE_UART_OVER_BTLE_UART_TX_TX, (uint8_t*)sendBuffer, sendLength))
-//		{
-//			SerialUSB.println(F("TX dropped!"));
-//		}
+		// idle timeout
+		if (n_seconds % idle_timeout_sec == 0) {
+			logger.debug(
+				std::string("timer: idle timeout: ")
+					+ "duration = " + std::to_string(idle_timeout_sec) + "sec, "
+					+ "movement = " + std::to_string(has_movement)
+			);			
+
+			if (app.is_lost)
+				app.n_minutes_lost += idle_timeout_sec / 60;
+
+			if (!has_movement) {
+				app.set_lost();
+				// TODO
+				//bt.set_discoverable(l_name);
+			} else {
+				// reset lost status
+				app.reset();
+				//bt.unset_discoverable();
+			}
+
+			// reset status
+			n_seconds = 0;
+			has_movement = false;
+		}
+	});
+
+	/*
+	// how long it takes before declaring device lost
+	static const constexpr std::size_t
+		idle_timeout_minutes = 1;
+
+	logger.info("timer: initialization");
+	static constexpr auto &timer = tinyzero::timers::tc3;
+	timer.init(&clk);
+
+	// NOTE interval in seconds
+	auto s = timer.set_interval(
+		idle_timeout_minutes * 60, 
+		timer.INTVLPRIOR_RANGE
+	);
+	if (s != timer.STATUS_SUCCESS) {
+		logger.error("timer: invalid interval");
+		return EXIT_FAILURE;
 	}
+
+	// is device lost?
+	static bool is_lost = false;
+	
+	timer.listen([]() {
+		// this is synced with the value on led display
+		static constexpr auto 
+			&n_minutes_lost = msg.data.n_minutes;
+
+		// check movement
+		bool has_movement = check_movement();
+		if (!has_movement) {
+			is_lost = true;
+			logger_le.debug("");
+		} else {
+			// TODO reset lost status?
+			// is_lost = false;
+			logger_le.debug("timer: has movement");
+		}
+
+		logger.debug(
+			std::string("timer: idle timeout: ")
+				+ "duration = " + std::to_string(idle_timeout_minutes) + "min, "
+				+ "lost counter = " + std::to_string(n_minutes_lost) + "min, "
+				+ "movement = " + std::to_string(has_movement) + ", "
+				+ "is lost = " + std::to_string(is_lost)
+		);
+
+		// TODO
+		if (is_lost)
+			n_minutes_lost += idle_timeout_minutes;
+	});
+	*/
+
+	// timer enabled in standby
+	timer.enable(true);
+
+	while (true) {
+		if (!app.is_lost) {
+			//vendor_samd::standby();
+			//continue;
+		}
+
+		stble::process();
+	}
+
+	return EXIT_SUCCESS;
 }
+
+
