@@ -26,7 +26,7 @@
 
 #include <list>
 
-#include "src/stble/ASTBLE/STBLE.h"
+#include "src/stble/STBLE/src/STBLE.h"
 
 
 struct HCI_Event_CB_Info {
@@ -44,8 +44,8 @@ namespace stble {
 
 inline bool process() {
 	// nothing to process
-	if (HCI_Queue_Empty())
-		return false;
+	//if (HCI_Queue_Empty())
+	//	return false;
 	HCI_Process();
 	return true;
 }
@@ -132,6 +132,7 @@ class ble {
 public:
 	enum status_e {
 		STATUS_SUCCESS,
+		STATUS_EINVAL,
 		STATUS_FAILURE
 	};
 	
@@ -141,6 +142,11 @@ protected:
 		uint16_t dev_name_char;
 		uint16_t appear_char;
 	} handle;
+
+	enum state_e {
+		STATE_INIT = 0,
+		STATE_DISCOVERABLE
+	} state = state_e::STATE_INIT;
 
 	status_e set_pub_address(const struct public_address &addr) {
 		if (aci_hal_write_config_data(
@@ -225,6 +231,10 @@ public:
 		std::size_t intvl_min_ms = 50,
 		std::size_t intvl_max_ms = 100
 	) {
+		// TODO
+		if (this->state == STATE_DISCOVERABLE)
+			return status_e::STATUS_EINVAL;
+
 		tBleStatus s_ble;
 
 		s_ble = hci_le_set_scan_resp_data(0, nullptr);
@@ -242,12 +252,17 @@ public:
 		if (s_ble != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
 
+		this->state = state_e::STATE_DISCOVERABLE;
 		return status_e::STATUS_SUCCESS;
 	}
 
 	status_e unset_discoverable() {
+		if (this->state < state_e::STATE_DISCOVERABLE)
+			return status_e::STATUS_EINVAL;
+
 		if (aci_gap_set_non_discoverable() != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
+		this->state = state_e::STATE_INIT;
 		return status_e::STATUS_SUCCESS;
 	}
 
@@ -335,6 +350,11 @@ protected:
 		uint16_t conn = 0;
 	} handle;
 
+	enum state_e {
+		STATE_INIT = 0,
+		STATE_CONNECTED
+	} state = state_e::STATE_INIT;
+
 	static void hci_handler(void *data, void *pckt) {
 		auto *this_ = (class uart *)data;
 
@@ -346,7 +366,13 @@ protected:
 		switch (event_pckt->evt) {
 		case EVT_DISCONN_COMPLETE: {
 			auto *evt = (evt_disconn_complete *)event_pckt->data;
+			if (this_->handle.conn == 0)
+				break;
+			// TODO multiple connections??
+			if (this_->handle.conn != evt->handle)
+				break;
 
+			this_->state = state_e::STATE_INIT;
 			if (this_->callbacks.disconnect != nullptr)
 				this_->callbacks.disconnect(*evt);
 		} break;
@@ -356,6 +382,7 @@ protected:
 			switch (evt->subevent) {
 			case EVT_LE_CONN_COMPLETE: {
 				auto *cc = (evt_le_connection_complete *)evt->data;
+				this_->state = state_e::STATE_CONNECTED;
 
 				// TODO cc->peer_bdaddr_type;
 				this_->handle.conn = cc->handle;
@@ -413,7 +440,8 @@ public:
 
 	enum status_e {
 		STATUS_SUCCESS,
-		STATUS_FAILURE
+		STATUS_FAILURE,
+		STATUS_ENOTCONN
 	};
 	
 	status_e init(const struct uart_info &info) {
@@ -425,10 +453,19 @@ public:
 		return status_e::STATUS_SUCCESS;
 	}
 
+	// TODO async write??
 	status_e write(const char *data, std::size_t len) {
+		if (this->state < STATE_CONNECTED)
+			return status_e::STATUS_ENOTCONN;
+
 		tBleStatus s_ble;
 
 		// TODO check if connected
+		/*s_ble = aci_gatt_write_charac_value(
+			this->info.handle.serv, 
+			this->info.handle.rx, 
+			len, (uint8_t *)data
+		);*/
 		s_ble = aci_gatt_update_char_value(
 			this->info.handle.serv, 
 			this->info.handle.rx, 

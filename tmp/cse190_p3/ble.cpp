@@ -136,6 +136,9 @@ int ble_init() {
   ret = aci_hal_set_tx_power_level(1, 3);
 
   setConnectable();
+  setConnectable();
+  //setConnectable();
+  //setConnectable();
 }
 
 

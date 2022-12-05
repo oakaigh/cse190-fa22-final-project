@@ -72,12 +72,11 @@ int main() {
 	// USB configuration
 	if (!production) {
 		USBDevice.init();
-		USBDevice.attach();		
-	}
+		USBDevice.attach();
 
-	// TODO rm debug
-	while (!SerialUSB); //This line will block until a serial monitor is opened with TinyScreen+!
-	SerialUSB.println("Starting...");
+		// wait for serial
+		while (!SerialUSB);		
+	}
 
 	// TODO
 	// peripheral clock configuration
@@ -221,6 +220,10 @@ int main() {
 		);
 
 		app.process_cmd(data, len);
+
+		// TODO rm debug
+		if (bt_uart.print("ack") != bt_uart.STATUS_SUCCESS)
+			logger.debug("TODO rm: fail");
 	};
 
 	if (bt_uart.init(bt_uart_i) != bt_uart.STATUS_SUCCESS) {
@@ -281,14 +284,15 @@ int main() {
 					+ app.stats()
 			);
 			
-			if (app.is_lost) {
+			
+			//if (app.is_lost) {
 				// TODO check if connected
 				/*bt_uart.print(
 					std::string("privtag ") + app.name 
 						+ " has been missing for "
 						+ std::to_string(app.n_minutes_lost) + " minutes."
 				);*/
-			}
+			//}
 		}
 
 		// idle timeout
