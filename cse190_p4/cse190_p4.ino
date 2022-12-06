@@ -399,7 +399,10 @@ int main() {
 					std::string(app.name) + ":"
 						+ std::to_string(app.n_minutes_lost)
 				) != bt_uart.STATUS_SUCCESS)
-					logger.error("bluetooth (UART): stat transmission failure");
+					logger.error(
+						"bluetooth (UART): "
+						"stat transmission failure"
+					);
 			}
 
 			stat_interrupt = false;
