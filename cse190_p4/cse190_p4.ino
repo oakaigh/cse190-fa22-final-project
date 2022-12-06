@@ -17,7 +17,11 @@ extern "C" void __libc_init_array(void);
 #include "pm.h"
 
 
-static const constexpr bool production = false;
+static const constexpr bool
+	// production mode, debugging outputs disabled
+	production = true,
+	// only valid when production is false
+	wait_for_serial = false; 
 
 namespace privtag {
 
@@ -99,7 +103,8 @@ int main() {
 		USBDevice.attach();
 
 		// wait for serial
-		while (!SerialUSB);
+		if (wait_for_serial)
+			while (!SerialUSB);
 	}
 
 	// TODO
@@ -377,8 +382,7 @@ int main() {
 	// main loop
 	while (true) {
 		if (!app.is_lost) {
-			//vendor_samd::standby();
-			//continue;
+			vendor_samd::standby();
 		}
 
 		app.process();
