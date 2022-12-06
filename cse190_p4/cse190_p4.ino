@@ -171,10 +171,7 @@ int main() {
 	static constexpr auto &app = privtag::app;
 
 	// bluetooth
-
-	// TODO rm debug
-	delay(5000);
-
+	// NOTE FIXME must be initd before the timer or system hang!!
 	logger.info("bluetooth: initialization");
 	static constexpr auto &bt = tinyzero::bluetooth;
 

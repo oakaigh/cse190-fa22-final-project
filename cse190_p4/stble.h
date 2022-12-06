@@ -143,11 +143,6 @@ protected:
 		uint16_t appear_char;
 	} handle;
 
-	enum state_e {
-		STATE_INIT = 0,
-		STATE_DISCOVERABLE
-	} state = state_e::STATE_INIT;
-
 	status_e set_pub_address(const struct public_address &addr) {
 		if (aci_hal_write_config_data(
 			CONFIG_DATA_PUBADDR_OFFSET, 
@@ -233,13 +228,6 @@ public:
 		std::size_t intvl_min_ms = 50,
 		std::size_t intvl_max_ms = 100
 	) {
-		// TODO
-		//if (this->state == STATE_DISCOVERABLE)
-		//	return status_e::STATUS_EINVAL;
-
-		// TODO rm debug
-		delay(5000);
-
 		tBleStatus s_ble;
 
 		s_ble = hci_le_set_scan_resp_data(0, nullptr);
@@ -257,21 +245,12 @@ public:
 		if (s_ble != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
 
-		this->state = state_e::STATE_DISCOVERABLE;
 		return status_e::STATUS_SUCCESS;
 	}
 
 	status_e unset_discoverable() {
-		//if (this->state < state_e::STATE_DISCOVERABLE)
-		//	return status_e::STATUS_EINVAL;
-
-		// rm debug
-		delay(5000);
-
-
 		if (aci_gap_set_non_discoverable() != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
-		this->state = state_e::STATE_INIT;
 		return status_e::STATUS_SUCCESS;
 	}
 
