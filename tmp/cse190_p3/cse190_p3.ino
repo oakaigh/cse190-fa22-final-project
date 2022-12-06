@@ -26,9 +26,19 @@ void setup() {
   ble_init();
 }
 
-
+int cnt = 0;
 void loop() {
   ble_loop(); //Process any ACI commands or events from the main BLE handler, must run often. Keep main loop short.
+
+  if (cnt == 655350) {
+  const char test[] = "test";
+  lib_aci_send_data(PIPE_UART_OVER_BTLE_UART_TX_TX, (uint8_t*)test, strlen(test) + 1);
+  cnt = 0; 
+  }
+
+  cnt++;
+
+
   return;
 
   if (SerialUSB.available()) {//Check if serial input is available to send

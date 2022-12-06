@@ -44,8 +44,8 @@ namespace stble {
 
 inline bool process() {
 	// nothing to process
-	//if (HCI_Queue_Empty())
-	//	return false;
+	if (HCI_Queue_Empty())
+		return false;
 	HCI_Process();
 	return true;
 }
@@ -232,8 +232,8 @@ public:
 		std::size_t intvl_max_ms = 100
 	) {
 		// TODO
-		if (this->state == STATE_DISCOVERABLE)
-			return status_e::STATUS_EINVAL;
+		//if (this->state == STATE_DISCOVERABLE)
+		//	return status_e::STATUS_EINVAL;
 
 		tBleStatus s_ble;
 
@@ -257,8 +257,8 @@ public:
 	}
 
 	status_e unset_discoverable() {
-		if (this->state < state_e::STATE_DISCOVERABLE)
-			return status_e::STATUS_EINVAL;
+		//if (this->state < state_e::STATE_DISCOVERABLE)
+		//	return status_e::STATUS_EINVAL;
 
 		if (aci_gap_set_non_discoverable() != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
@@ -321,7 +321,7 @@ public:
 			goto _loc_finally;
 		}
 
-		aci_gatt_add_char(
+		s_ble = aci_gatt_add_char(
 			info.handle.serv, 
 			uuid_type, uuid_rx_char, 
 			20, 
@@ -416,7 +416,10 @@ protected:
 				// ready for read
 				if (evt->attr_handle == this_->info.handle.tx + 1) {
 					if (this_->callbacks.read != nullptr)
-						this_->callbacks.read((const char *)evt->att_data, evt->data_length);
+						this_->callbacks.read(
+							(const char *)evt->att_data, 
+							evt->data_length
+						);
 				}
 
 				// ready for write
@@ -455,8 +458,8 @@ public:
 
 	// TODO async write??
 	status_e write(const char *data, std::size_t len) {
-		if (this->state < STATE_CONNECTED)
-			return status_e::STATUS_ENOTCONN;
+		//if (this->state < STATE_CONNECTED)
+		//	return status_e::STATUS_ENOTCONN;
 
 		tBleStatus s_ble;
 

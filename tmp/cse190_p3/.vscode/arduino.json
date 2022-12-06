@@ -1,5 +1,5 @@
 {
-    "port": "/dev/ttyACM3",
+    "port": "/dev/tty.usbmodem14401",
     "configuration": "BuildOption=normal",
     "board": "TinyCircuits:samd:tinyzero",
     "sketch": "cse190_p3.ino"
