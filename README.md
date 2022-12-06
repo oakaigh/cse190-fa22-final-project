@@ -2,13 +2,13 @@
 
 ## Device States
 - **[init]**:
-	- is device stationary for one minute?
+	- Device stationary for one minute?
 		- `true`: enter state **[lost]**
 		- `false`: `continue`
 - **[lost]**: 
-	- enable bluetooth broadcast
-	- periodically send `:`-delimited status message over UART (see below)
-	- magic command from UART ?
+	- Enable bluetooth broadcast
+	- Periodically send `:`-delimited status message over UART (see below)
+	- Magic command from UART received?
 		- `found`: leave state **[lost]**
 	- `continue`
 
