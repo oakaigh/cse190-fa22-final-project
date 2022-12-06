@@ -4,6 +4,7 @@ extern "C" void __libc_init_array(void);
 #include "arduino.h"
 
 #include <tuple>
+#include <queue>
 
 #include "utils.h"
 #include "logging.h"
@@ -22,14 +23,17 @@ namespace privtag {
 
 class privtag {
 public:
+	using callback_f = void (class privtag *);
+	
 	struct {
 		char *reset = "found";
 	} cmd;
 
 	struct {
-		void (*lost)(class privtag *) = nullptr;
-		void (*reset)(class privtag *) = nullptr;
+		callback_f *lost = nullptr,
+			*reset = nullptr;
 	} callbacks;
+	std::queue<callback_f *> callback_queue;
 
 	std::string name = "";
 
@@ -42,7 +46,7 @@ public:
 
 	void reset() {
 		if (this->callbacks.reset != nullptr)
-			this->callbacks.reset(this);	
+			this->callback_queue.push(this->callbacks.reset);	
 
 		this->is_lost = false;
 		this->n_minutes_lost = 0;
@@ -52,7 +56,7 @@ public:
 		this->is_lost = true;
 
 		if (this->callbacks.lost != nullptr)
-			this->callbacks.lost(this);
+			this->callback_queue.push(this->callbacks.lost);
 	}
 
 	void process_cmd(const char *cmd, std::size_t len) {
@@ -64,6 +68,17 @@ public:
 		}
 	}
 
+	bool process() {
+		for (; 
+			!this->callback_queue.empty(); 
+			this->callback_queue.pop()
+		) {
+			auto &cb = this->callback_queue.front();
+			cb(this);
+		}
+		return true;
+	}
+
 	std::string stats() const {
 		return std::string("")
 			+ "is lost = " + std::to_string(this->is_lost) + ", "
@@ -73,84 +88,6 @@ public:
 
 inline privtag app("CSE190A-oakaigh");
 }
-
-void sample() {
-	SerialUSB.begin(115200);
-	while (!SerialUSB); //This line will block until a serial monitor is opened with TinyScreen+!
-	SerialUSB.println("Starting...");
-
-
-	static constexpr auto &bt = tinyzero::bluetooth;
-
-	// TODO err handling
-	bt.init((stble::ble_info) {
-		.addr = { .addr = {0x12, 0x72, 0xe9, 0x66, 0x06, 0x00} }
-	});
-	bt.set_dev_name("PrivTag");
-	bt.set_txpower(true, 3);
-	bt.set_discoverable((stble::local_name<>) { 
-		.type = stble::local_name<>::type_e::FULL,
-		.val = "CSE190A" 
-	});
-
-	static stble::uart bt_uart;
-
-	stble::ble::status_e s;
-	stble::uart_info bt_uart_i;
-	std::tie(s, bt_uart_i) = bt.add_service_uart();
-	if (s != bt_uart.STATUS_SUCCESS) {
-		// TODO
-		SerialUSB.println("uart init failure");
-	}
-	
-
-	bt_uart.init(bt_uart_i);
-
-	bt_uart.callbacks.connect = [](
-		const evt_le_connection_complete &evt
-	) {
-		SerialUSB.println("connection");
-	};
-
-	bt_uart.callbacks.disconnect = [](const evt_disconn_complete &evt) {
-		SerialUSB.println("disconnected");
-		bt.set_discoverable((stble::local_name<>) { 
-			.type = stble::local_name<>::type_e::FULL,
-			.val = "CSE190A" 
-		});
-	};
-
-	bt_uart.callbacks.read = [](const char *data, std::size_t len) {
-		SerialUSB.print("data: ");
-		SerialUSB.write(data, len);
-		SerialUSB.println();
-
-
-		const constexpr char magic[] = "found";
-		if (utils::bytes_equal(
-			data, len,
-			magic, strlen(magic)
-		)) {
-			SerialUSB.println("magic");
-		}
-
-	};
-
-
-	int cnt = 0;
-	while (true) {
-		stble::process();
-
-		if (cnt == 655350 / 5) {
-		const char test[] = "test";
-		bt_uart.write(test, strlen(test) + 1);
-		cnt = 0; 
-		}
-
-		cnt++;
-	}
-}
-
 
 int main() {
 	init();
@@ -164,11 +101,6 @@ int main() {
 		// wait for serial
 		while (!SerialUSB);
 	}
-
-	// TODO rm debug
-	//sample();
-	//return 0;
-
 
 	// TODO
 	// peripheral clock configuration
@@ -252,16 +184,13 @@ int main() {
 	});
 
 	bt.set_dev_name("PrivTag");
-	// set power to +7 dBm
+	// set power to max ~+8 dBm
 	bt.set_txpower(true, 7);
 
 	static const stble::local_name<> l_name = {
 		.type = stble::local_name<>::type_e::FULL,
 		.val = app.name
 	};
-
-	// TODO rm debug
-	bt.set_discoverable(l_name);
 
 	logger.info("bluetooth (UART): initialization");
 	static stble::uart bt_uart;
@@ -283,19 +212,9 @@ int main() {
 	bt_uart.callbacks.disconnect = [](const evt_disconn_complete &evt) {
 		logger.debug("bluetooth (UART): client disconnected");
 
-		/*
-
-		// continue broadcasting if still lost
-		if (app.is_lost) {
+		// continue broadcasting if still lost??
+		if (app.is_lost) 
 			bt.set_discoverable(l_name);
-		} else {
-			bt.unset_discoverable();
-		}
-		
-		*/
-
-		// TODO rm debug
-		bt.set_discoverable(l_name);
 	};
 
 	bt_uart.callbacks.read = [](const char *data, std::size_t len) {
@@ -305,10 +224,6 @@ int main() {
 		);
 
 		app.process_cmd(data, len);
-
-		// TODO rm debug
-		if (bt_uart.print("ack") != bt_uart.STATUS_SUCCESS)
-			logger.debug("TODO rm: fail");
 	};
 
 	if (bt_uart.init(bt_uart_i) != bt_uart.STATUS_SUCCESS) {
@@ -317,15 +232,15 @@ int main() {
 	}
 
 	app.callbacks.lost = [](privtag::privtag *_) {
-		// TODO
-		logger.debug("privtag: entering lost status");
-		//bt.set_discoverable(l_name);
+		logger.debug("privtag: entering lost state");
+		bt.set_discoverable(l_name);
 	};
 
 	app.callbacks.reset = [](privtag::privtag *_) {
-		// TODO
-		logger.debug("privtag: exiting lost status");
-		//bt.unset_discoverable(l_name);
+		logger.debug("privtag: exiting lost state");
+		bt_uart.close();
+		bt.unset_discoverable();
+		bt.standby();
 	};
 
 	app.reset();
@@ -339,7 +254,7 @@ int main() {
 		idle_timeout_sec = 60;
 	
 	static const constexpr std::size_t
-		stat_interval_sec = 2;// TODO rm debug // 10;
+		stat_interval_sec = 10;
 
 	// timer
 	static volatile bool stat_interrupt = false;
@@ -364,7 +279,7 @@ int main() {
 		logger.debug(
 			std::string("timer: tick: ")
 				+ "total elapsed = " 
-					+ std::to_string(n_seconds) + "sec"
+				+ std::to_string(n_seconds) + "sec"
 		);
 
 		n_seconds += idle_interval_sec;
@@ -389,16 +304,15 @@ int main() {
 				std::string("timer: idle timeout: ")
 					+ "duration = " + std::to_string(idle_timeout_sec) + "sec, "
 					+ "movement = " + std::to_string(has_movement)
-			);			
+			);
 
 			if (app.is_lost)
 				app.n_minutes_lost += idle_timeout_sec / 60;
 
 			// enter/exit lost mode
 			if (!has_movement) {
-				app.set_lost();				
+				app.set_lost();
 			} else {
-				// reset lost status
 				app.reset();
 			}
 
@@ -470,6 +384,7 @@ int main() {
 			//continue;
 		}
 
+		app.process();
 		stble::process();
 
 		if (stat_interrupt) {
@@ -479,11 +394,11 @@ int main() {
 						+ app.stats()
 				);
 
-				bt_uart.print(
-					std::string("privtag ") + app.name 
-						+ " has been missing for "
-						+ std::to_string(app.n_minutes_lost) + " minutes."
-				);
+				if (bt_uart.print(
+					std::string(app.name) + ":"
+						+ std::to_string(app.n_minutes_lost)
+				) != bt_uart.STATUS_SUCCESS)
+					logger.error("bluetooth (UART): stat transmission failure");
 			}
 
 			stat_interrupt = false;

@@ -11,5 +11,5 @@
 #endif
 
 // configuration
-//#pragma GCC optimize ("Ofast")
+#pragma GCC optimize ("Ofast")
 #pragma GCC diagnostic error "-Wall"

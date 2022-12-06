@@ -217,7 +217,9 @@ public:
 		return this->set_dev_name(name.c_str(), name.length());
 	}
 	
-	// NOTE level: 0 to 7 dBm
+	// NOTE level: 0 to 7
+	// see https://www.st.com/resource/en/user_manual/um1865-the-bluenrgms-bluetooth-le-stack-application-command-interface-aci-stmicroelectronics.pdf
+	// Table 292. Tx_power_level command parameters combination
 	status_e set_txpower(bool high, uint8_t level_dbm) {
 		if (aci_hal_set_tx_power_level(high, level_dbm) 
 			!= BLE_STATUS_SUCCESS) 
@@ -234,6 +236,9 @@ public:
 		// TODO
 		//if (this->state == STATE_DISCOVERABLE)
 		//	return status_e::STATUS_EINVAL;
+
+		// TODO rm debug
+		delay(5000);
 
 		tBleStatus s_ble;
 
@@ -259,6 +264,10 @@ public:
 	status_e unset_discoverable() {
 		//if (this->state < state_e::STATE_DISCOVERABLE)
 		//	return status_e::STATUS_EINVAL;
+
+		// rm debug
+		delay(5000);
+
 
 		if (aci_gap_set_non_discoverable() != BLE_STATUS_SUCCESS)
 			return status_e::STATUS_FAILURE;
@@ -340,6 +349,12 @@ public:
 	_loc_finally:
 		return std::make_pair(s, info);
 	}
+
+	status_e standby() {
+		if (aci_hal_device_standby() != BLE_STATUS_SUCCESS)
+			return status_e::STATUS_FAILURE;
+		return status_e::STATUS_SUCCESS;
+	}
 };
 
 class uart {
@@ -349,11 +364,6 @@ protected:
 	struct {
 		uint16_t conn = 0;
 	} handle;
-
-	enum state_e {
-		STATE_INIT = 0,
-		STATE_CONNECTED
-	} state = state_e::STATE_INIT;
 
 	static void hci_handler(void *data, void *pckt) {
 		auto *this_ = (class uart *)data;
@@ -372,7 +382,6 @@ protected:
 			if (this_->handle.conn != evt->handle)
 				break;
 
-			this_->state = state_e::STATE_INIT;
 			if (this_->callbacks.disconnect != nullptr)
 				this_->callbacks.disconnect(*evt);
 		} break;
@@ -382,7 +391,6 @@ protected:
 			switch (evt->subevent) {
 			case EVT_LE_CONN_COMPLETE: {
 				auto *cc = (evt_le_connection_complete *)evt->data;
-				this_->state = state_e::STATE_CONNECTED;
 
 				// TODO cc->peer_bdaddr_type;
 				this_->handle.conn = cc->handle;
@@ -458,9 +466,6 @@ public:
 
 	// TODO async write??
 	status_e write(const char *data, std::size_t len) {
-		//if (this->state < STATE_CONNECTED)
-		//	return status_e::STATUS_ENOTCONN;
-
 		tBleStatus s_ble;
 
 		// TODO check if connected
@@ -487,6 +492,15 @@ public:
 
 	status_e print(const std::string &s) {
 		return this->write(s.c_str(), s.length() + 1);
+	}
+
+	status_e close() {
+		if (aci_gap_terminate(
+			this->handle.conn, 
+			HCI_OE_USER_ENDED_CONNECTION
+		) != BLE_STATUS_SUCCESS)
+			return status_e::STATUS_FAILURE;
+		return status_e::STATUS_SUCCESS;
 	}
 };
 }
